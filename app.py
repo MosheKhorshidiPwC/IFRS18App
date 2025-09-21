@@ -139,7 +139,7 @@ if uploaded_file is not None:
         else:
             # If user edits without saving, keep edits visible but require save to generate
             st.session_state.mapping_saved = False
-
+        # Check if the mapping is saved
         if not st.session_state.mapping_saved:
             st.info("Save the mapping to enable 'Generate P&L'.")
 
