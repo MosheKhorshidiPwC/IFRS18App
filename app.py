@@ -1,20 +1,20 @@
 import io
 from typing import Dict, List
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ifrs18.data_loader import (
+from data_loader import (
     MAX_FILE_SIZE_MB,
     clean_numeric_series,
     guess_column_mapping,
     read_trial_balance,
+    
 )
-from ifrs18.models import IFRSCategory, LineItem, MappingConfig, UploadedTBColumns
-from ifrs18.mapping import apply_line_item_mapping
-from ifrs18.pl_generator import generate_ifrs18_pl
-from ifrs18.currency import SUPPORTED_CURRENCIES
+from models import IFRSCategory, LineItem, MappingConfig, UploadedTBColumns
+from mapping import apply_line_item_mapping
+from pl_generator import generate_ifrs18_pl
+from currency import SUPPORTED_CURRENCIES
 
 
 st.set_page_config(page_title="IFRS 18 P&L Prototype", layout="wide")
@@ -217,7 +217,7 @@ if uploaded_file is not None:
             st.download_button(
                 label="Download P&L as CSV",
                 data=csv_bytes,
-                file_name="profit_and_loss_ifrs18.csv",
+                file_name="profit_and_loss_csv",
                 mime="text/csv",
             )
 

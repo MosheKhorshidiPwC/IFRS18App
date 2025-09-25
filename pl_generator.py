@@ -1,6 +1,6 @@
 from __future__ import annotations
 import pandas as pd
-from .models import IFRSCategory
+from models import IFRSCategory
 
 
 def highlight_row(row):

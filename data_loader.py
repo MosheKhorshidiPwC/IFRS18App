@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import io
 import re
 from typing import Dict, Iterable, List
-
 import pandas as pd
 
 MAX_FILE_SIZE_MB = 20
