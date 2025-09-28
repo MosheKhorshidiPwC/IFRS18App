@@ -3,6 +3,7 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 import streamlit as st
+import openpyxl
 
 from data_loader import (
     MAX_FILE_SIZE_MB,
