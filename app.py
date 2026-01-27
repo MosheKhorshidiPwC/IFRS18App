@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from rapidfuzz import process, fuzz
 import streamlit as st
 
 # --- 1. Page Configuration ---
@@ -25,6 +26,10 @@ st.markdown("""
         color: #2D2D2D;
     }
     
+    /* Header */
+    h1, h2, h3 { font-weight: 700; color: #2D2D2D; }
+    
+    /* Buttons */
     .stButton > button {
         background-color: #D04A02; 
         color: white; 
@@ -33,15 +38,28 @@ st.markdown("""
         border: none;
         height: 3em;
         width: 100%;
+        transition: 0.2s;
     }
-    .stButton > button:hover { background-color: #b03d00; color: white; }
+    .stButton > button:hover {
+        background-color: #b03d00;
+        color: white;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #f2f2f2;
+        border-right: 1px solid #e0e0e0;
+    }
+    
+    /* Progress */
+    .step-active { color: #D04A02; font-weight: bold; border-left: 4px solid #D04A02; padding-left: 10px; margin-bottom: 10px;}
+    .step-inactive { color: #666; padding-left: 14px; margin-bottom: 10px;}
     
     /* Tables */
     .stDataFrame { border: 1px solid #ddd; border-radius: 5px; }
     
-    /* Sidebar Steps */
-    .step-active { color: #D04A02; font-weight: bold; border-left: 4px solid #D04A02; padding-left: 10px; margin-bottom: 10px;}
-    .step-inactive { color: #666; padding-left: 14px; margin-bottom: 10px;}
+    /* Metric Box */
+    div[data-testid="stMetricValue"] { font-size: 1.1rem; color: #D04A02; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -52,7 +70,7 @@ def render_header():
         st.image("https://upload.wikimedia.org/wikipedia/commons/0/05/PricewaterhouseCoopers_Logo.svg", width=120)
     with c2:
         st.markdown("## IFRS 18 Financial Statement Converter")
-        st.caption("Manual classification to Groups, followed by granular Breakdown.")
+        st.caption("Automated classification, granular ungrouping, and professional reporting engine.")
     st.divider()
 
 # --- 4. Data Engines ---
@@ -85,215 +103,199 @@ def load_data_file(file):
             df[c] = df[c].apply(clean_financial_value)
     return df[valid_cols]
 
-# --- 5. THE TEMPLATE DEFINITIONS (Separating Groups vs Details) ---
+# --- 5. Template Definitions (Exact Match) ---
 
-def get_template_data(template_name):
+def get_template_structure(key):
     """
-    Returns a DataFrame with columns: ['Line Item', 'Type', 'Category']
-    Type is either 'Group' (for initial mapping) or 'Detail' (for breakdown).
+    Returns tuple: (List of Groups [G], List of Details)
+    Based on the users strict requirement.
     """
     
-    rows = []
-    def add(name, type_, cat):
-        rows.append({"Line Item": name, "Type": type_, "Category": cat})
-
-    # --- SHARED GROUPS (Common across most templates) ---
-    common_groups = [
-        ("Revenue from the sale of goods or services", "Operating"),
-        ("Cost of sales, cost of goods", "Operating"),
-        ("Sales and marketing", "Operating"),
-        ("Research and development", "Operating"),
-        ("General and administrative expenses", "Operating"),
-        ("Other operating expenses", "Operating")
+    # Common Groups across most
+    base_groups = [
+        "Revenue from the sale of goods or services", 
+        "Cost of sales , cost of goods", 
+        "Sales and marketing", 
+        "Research and development", 
+        "General and administrative expenses", 
+        "Other operating expenses"
     ]
 
-    # --- TEMPLATE 1: INVESTING ENTITY ---
-    if template_name == "Investing Entity":
-        # Groups
-        for n, c in common_groups: add(n, "Group", c)
-        add("Interest expense", "Group", "Financing")
-        add("Income expense", "Group", "Financing")
-        
-        # Details
+    if key == "Investing Entity":
+        groups = base_groups + ["Interest expense", "Income expense"]
         details = [
-            ("Depreciation, impairment and impairment reversals of property, plant and equipment", "Operating"),
-            ("Amortisation, impairment and impairment reversals of intangibles", "Operating"),
-            ("Gains and losses on the disposal of property, plant and equipment or intangibles", "Operating"),
-            ("Foreign exchange differences arised from trade receivable denominated in a foreign currency", "Operating"),
-            ("Income or expense form Government grants related to operations", "Operating"),
-            ("FX differences on trade receivables/payables", "Operating"),
-            ("Impairment losses/reversals on trade receivables", "Operating"),
-            ("Rental income from investment property", "Operating"),
-            ("Fair value gains and losses from investment property", "Operating"),
-            ("Dividends recieved from investment entities", "Operating"),
-            ("Bank fees not related to a specefic borrowing", "Operating"),
-            ("Interest from investment debt securities", "Operating"),
-            ("Income and expenses from cash and cash equivalents", "Operating"),
-            ("Net gain / loss on investment entites at fair value", "Operating"),
-            ("Gain on disposal of investment entities / Investment property at fair value", "Operating"),
-            ("Realized FX gains/losses on investment entities / Investment property at fair value", "Operating"),
-            ("Impairment losses/reversals on investment entities / Investment property at fair value", "Operating"),
-            ("Net gain/loss on derivatives that hedge operating investments", "Operating"),
-            ("Gain or loss on lease modifications or remeasurements related to ROU", "Operating"),
-            ("Variable lease payments", "Operating"),
-            ("Depreciation of ROU", "Operating"),
-            ("Interest expense on lease liability", "Financing"),
-            ("Interest income from loans granted to third parties (non-customers)", "Investing"),
-            ("FX differences on financing debt", "Financing"),
-            ("Fair value changes on derivatives used solely to hedge financing debt", "Financing"),
-            ("Fair value gains and losses on a liability designated at fair value through profit or loss", "Financing"),
-            ("Share of profit/loss from associates or joint ventures – equity method (IAS 28)", "Investing"),
-            ("Impairment losses on equity-accounted investments", "Investing"),
-            ("Net interest expense (income) on a net defined benefit liability (asset)", "Financing"),
-            ("FX on lease liabilities", "Financing"),
-            ("Dividends from associates measured at equity method", "Investing"),
-            ("Income tax expense (benefit)", "Income Tax"),
-            ("Discontinued operations", "Discontinued Ops")
+            "Depreciation, impairment and impairment reversals of property, plant and equipment",
+            "Amortisation, impairment and impairment reversals of intangibles",
+            "Gains and losses on the disposal of property, plant and equipment or intangibles",
+            "Foreign exchange differences arised from trade receivable denominated in a foreign currency.",
+            "Income or expense form Government grants related to operations",
+            "FX differences on trade receivables/payables",
+            "Impairment losses/reversals on trade receivables",
+            "Rental income from investment property",
+            "Fair value gains and losses from investment property ",
+            "Dividends recieved from investment entities.",
+            "Bank fees not related to a specefic borrowing",
+            "Interest from investment debt securities",
+            "Income and expenses from cash and cash equivalents",
+            "Net gain / loss on investment entites at fair value",
+            "Gain on disposal of investment entities / Investment property at fair value",
+            "Realized FX gains/losses on investment entities / Investment property at fair value",
+            "Impairment losses/reversals on investment entities / Investment property at fair value",
+            "Net gain/loss on derivatives that hedge operating investments",
+            "Gain or loss on lease modifications or remeasurements related to ROU",
+            "Variable lease payments",
+            "Depreciation of ROU",
+            "Interest expense on lease liability",
+            "Interest income from loans granted to third parties (non-customers)",
+            "FX differences on financing debt",
+            "Fair value changes on derivatives used solely to hedge financing debt ",
+            "Fair value gains and losses on a liability designated at fair value through profit or loss",
+            "Share of profit/loss from associates or joint ventures – equity method (IAS 28)",
+            "Impairment losses on equity-accounted investments",
+            "Net interest expense (income) on a net defined benefit liability (asset)",
+            "FX on lease liabilities",
+            "Dividends from associates measured at equity method",
+            "Income tax expense (benefit)",
+            "Discontinued operations"
         ]
-        for n, c in details: add(n, "Detail", c)
+        return groups, details
 
-    # --- TEMPLATE 2: FINANCING ENTITY ---
-    elif template_name == "Financing Entity":
-        # Groups
-        for n, c in common_groups: add(n, "Group", c)
-        add("Other Interest expense", "Group", "Financing")
-        add("Other Income expense", "Group", "Financing")
-
-        # Details
+    elif key == "Financing Entity":
+        groups = base_groups + ["Other Interest expense", "Other Income expense"]
         details = [
-            ("Depreciation, impairment and impairment reversals of property, plant and equipment", "Operating"),
-            ("Amortisation, impairment and impairment reversals of intangibles", "Operating"),
-            ("Gains and losses on the disposal of property, plant and equipment or intangibles", "Operating"),
-            ("Foreign exchange differences arised from trade receivable denominated in a foreign currency", "Operating"),
-            ("Income or expense form Government grants related to operations", "Operating"),
-            ("Interest income on loans to customers", "Operating"),
-            ("Interest income on credit facilities to customers", "Operating"),
-            ("Interest income on bonds related to financing customers", "Operating"),
-            ("Interest expense on customer deposits", "Operating"),
-            ("FX differences on trade receivables/payables", "Operating"),
-            ("Impairment losses/reversals on trade receivables", "Operating"),
-            # Policy Dependent
-            ("Income and expenses from cash and cash equivalents", "Accounting Policy"),
-            ("Interest on loans/bonds not related to customer financing", "Accounting Policy"),
-            ("FX on customer loans", "Operating"),
-            ("Loan origination fees", "Operating"),
-            ("Late customers payment penalties", "Operating"),
-            ("Expected credit losses from account receviables (AR) (IFRS 9)", "Operating"),
-            ("Net gain/loss on derivatives hedging customer loans", "Operating"),
-            ("Management fees for servicing customer loans", "Operating"),
-            ("Gain or loss on lease modifications or remeasurements related to ROU", "Operating"),
-            ("Depreciation of ROU", "Operating"),
-            ("Variable lease payments", "Operating"),
-            ("Bank fees not related to a specefic borrowing", "Operating"),
-            ("FX differences on financing debt used to fund customer loans", "Operating"),
-            ("Rental income from investment property", "Investing"),
-            ("Fair value gains and losses from investment property", "Investing"),
-            ("Dividends recieved from investment entities", "Investing"),
-            ("Interest from investment debt securities", "Investing"),
-            ("Net gain / loss on investment entites at fair value", "Investing"),
-            ("Gain on disposal of investment entities / Investment property at fair value", "Investing"),
-            ("Realized FX gains/losses on investment entities / Investment property at fair value", "Investing"),
-            ("Impairment losses/reversals on investment entities / Investment property at fair value", "Investing"),
-            ("Net gain/loss on derivatives that hedge investment assets", "Investing"),
-            ("Interest expense on lease liability", "Financing"),
-            ("Interest income from loans granted to third parties (non-customers)", "Investing"),
-            ("FX differences on financing debt", "Financing"),
-            ("Fair value changes on derivatives used solely to hedge financing debt", "Financing"),
-            ("Fair value gains and losses on a liability designated at fair value through profit or loss", "Financing"),
-            ("Share of profit/loss from associates or joint ventures – equity method (IAS 28)", "Investing"),
-            ("Impairment losses on equity-accounted investments", "Investing"),
-            ("Dividends from associates measured at equity method", "Investing"),
-            ("FX on lease liabilities", "Financing"),
-            ("Interest expenses on a contract liability with a significant financing component", "Financing"),
-            ("FX differences on loans received from third parties", "Financing"),
-            ("Interest expense arise from lease liabilities", "Financing"),
-            ("Net interest expense (income) on a net defined benefit liability (asset)", "Financing"),
-            ("Income tax expense (benefit)", "Income Tax"),
-            ("Discontinued operations", "Discontinued Ops")
+            "Depreciation, impairment and impairment reversals of property, plant and equipment",
+            "Amortisation, impairment and impairment reversals of intangibles",
+            "Gains and losses on the disposal of property, plant and equipment or intangibles",
+            "Foreign exchange differences arised from trade receivable denominated in a foreign currency.",
+            "Income or expense form Government grants related to operations",
+            "Interest income on loans to customers",
+            "Interest income on credit facilities to customers",
+            "Interest income on bonds related to financing customers",
+            "Interest expense on customer deposits",
+            "FX differences on trade receivables/payables",
+            "Impairment losses/reversals on trade receivables",
+            "Income and expenses from cash and cash equivalents",
+            "Interest on loans/bonds not related to customer financing",
+            "FX on customer loans",
+            "Loan origination fees",
+            "Late customers payment penalties",
+            "Expected credit losses from account receviables (AR) (IFRS 9)",
+            "Net gain/loss on derivatives hedging customer loans",
+            "Management fees for servicing customer loans ",
+            "Gain or loss on lease modifications or remeasurements related to ROU",
+            "Depreciation of ROU",
+            "Variable lease payments",
+            "Bank fees not related to a specefic borrowing",
+            "FX differences on financing debt used to fund customer loans",
+            "Rental income from investment property",
+            "Fair value gains and losses from investment property ",
+            "Dividends recieved from investment entities.",
+            "Interest from investment debt securities",
+            "Net gain / loss on investment entites at fair value",
+            "Gain on disposal of investment entities / Investment property at fair value",
+            "Realized FX gains/losses on investment entities / Investment property at fair value",
+            "Impairment losses/reversals on investment entities / Investment property at fair value",
+            "Net gain/loss on derivatives that hedge investment assets",
+            "Interest expense on lease liability",
+            "Interest income from loans granted to third parties (non-customers)",
+            "FX differences on financing debt",
+            "Fair value changes on derivatives used solely to hedge financing debt ",
+            "Fair value gains and losses on a liability designated at fair value through profit or loss",
+            "Share of profit/loss from associates or joint ventures – equity method (IAS 28)",
+            "Impairment losses on equity-accounted investments",
+            "Dividends from associates measured at equity method",
+            "FX on lease liabilities",
+            "Interest expenses on a contract liability with a significant financing component",
+            "FX differences on loans received from third parties",
+            "Interest expense arise from lease liabilities",
+            "Net interest expense (income) on a net defined benefit liability (asset)",
+            "Income tax expense (benefit)",
+            "Discontinued operations"
         ]
-        for n, c in details: add(n, "Detail", c)
+        return groups, details
 
-    # --- TEMPLATE 3: OTHER / GENERAL ---
-    else:
-        # Groups
-        for n, c in common_groups: add(n, "Group", c)
-        add("Interest expense", "Group", "Financing")
-        add("Income expense", "Group", "Financing")
-
-        # Details
+    else: # Other
+        groups = base_groups + ["Interest expense", "Income expense"]
         details = [
-            ("Depreciation, impairment and impairment reversals of property, plant and equipment", "Operating"),
-            ("Amortisation, impairment and impairment reversals of intangibles", "Operating"),
-            ("Gains and losses on the disposal of property, plant and equipment or intangibles", "Operating"),
-            ("Foreign exchange differences arised from trade receivable denominated in a foreign currency", "Operating"),
-            ("Income or expense form Government grants related to operations", "Operating"),
-            ("FX differences on trade receivables/payables", "Operating"),
-            ("Impairment losses/reversals on trade receivables", "Operating"),
-            ("Rental income from property used in operations/ Investment property", "Investing"),
-            ("Gain or loss on lease modifications or remeasurements related to ROU", "Operating"),
-            ("Depreciation of ROU", "Operating"),
-            ("Interest expense from lease liabilities", "Financing"),
-            ("Interest expenses on trade payables", "Operating"),
-            ("Variable lease payments", "Operating"),
-            ("Bank fees not related to a specefic borrowing", "Operating"),
-            ("Fair value gains and losses from investment property", "Investing"),
-            ("Dividends recieved from investment entities", "Investing"),
-            ("Interest from investment debt securities", "Investing"),
-            ("Net gain / loss on investment entites at fair value", "Investing"),
-            ("Gain on disposal of investment entities / Investment property at fair value", "Investing"),
-            ("Realized FX gains/losses on investment entities / Investment property at fair value", "Investing"),
-            ("Impairment losses/reversals on investment entities / Investment property at fair value", "Investing"),
-            ("Net gain/loss on derivatives that hedge investment assets", "Investing"),
-            ("Interest expense on lease liability", "Financing"),
-            ("Interest income from loans granted to third parties (non-customers)", "Investing"),
-            ("FX differences on financing debt", "Financing"),
-            ("Fair value changes on derivatives used solely to hedge financing debt", "Financing"),
-            ("Fair value gains and losses on a liability designated at fair value through profit or loss", "Financing"),
-            ("Share of profit/loss from associates or joint ventures – equity method (IAS 28)", "Investing"),
-            ("Impairment losses on equity-accounted investments", "Investing"),
-            ("Dividends from associates measured at equity method", "Investing"),
-            ("Income and expenses from cash and cash equivalents", "Investing"),
-            ("FX on lease liabilities", "Financing"),
-            ("Interest expense on loans received from third party", "Financing"),
-            ("FX differences on loans received from third parties", "Financing"),
-            ("Net interest expense (income) on a net defined benefit liability (asset)", "Financing"),
-            ("Interest expenses on a contract liability with a significant financing component", "Financing"),
-            ("Income tax expense (benefit)", "Income Tax"),
-            ("Discontinued operations", "Discontinued Ops")
+            "Depreciation, impairment and impairment reversals of property, plant and equipment",
+            "Amortisation, impairment and impairment reversals of intangibles",
+            "Gains and losses on the disposal of property, plant and equipment or intangibles",
+            "Foreign exchange differences arised from trade receivable denominated in a foreign currency.",
+            "Income or expense form Government grants related to operations",
+            "FX differences on trade receivables/payables",
+            "Impairment losses/reversals on trade receivables",
+            "Rental income from property used in operations/ Investment property",
+            "Gain or loss on lease modifications or remeasurements related to ROU",
+            "Depreciation of ROU",
+            "Interest expense from lease liabilities",
+            "Interest expenses on trade payables",
+            "Variable lease payments",
+            "Bank fees not related to a specefic borrowing",
+            "Fair value gains and losses from investment property ",
+            "Dividends recieved from investment entities.",
+            "Interest from investment debt securities",
+            "Net gain / loss on investment entites at fair value",
+            "Gain on disposal of investment entities / Investment property at fair value",
+            "Realized FX gains/losses on investment entities / Investment property at fair value",
+            "Impairment losses/reversals on investment entities / Investment property at fair value",
+            "Net gain/loss on derivatives that hedge investment assets",
+            "Interest expense on lease liability",
+            "Interest income from loans granted to third parties (non-customers)",
+            "FX differences on financing debt",
+            "Fair value changes on derivatives used solely to hedge financing debt ",
+            "Fair value gains and losses on a liability designated at fair value through profit or loss",
+            "Share of profit/loss from associates or joint ventures – equity method (IAS 28)",
+            "Impairment losses on equity-accounted investments",
+            "Dividends from associates measured at equity method",
+            "Income and expenses from cash and cash equivalents",
+            "FX on lease liabilities",
+            "Interest expense on loans received from third party ",
+            "FX differences on loans received from third parties",
+            "Net interest expense (income) on a net defined benefit liability (asset)",
+            "Interest expenses on a contract liability with a significant financing component",
+            "Income tax expense (benefit)",
+            "Discontinued operations"
         ]
-        for n, c in details: add(n, "Detail", c)
+        return groups, details
 
-    return pd.DataFrame(rows)
-
-def resolve_policy_category(cat, row_name, policies):
-    """Dynamic policy resolver."""
-    if cat != "Accounting Policy":
-        return cat
+def get_category_for_line(line, key, policies):
+    l = line.lower()
+    # Policies (Financing Entity specific)
+    if key == "Financing Entity":
+        if "cash and cash equivalents" in l: return "Operating" if policies.get("cash_op") == "Yes" else "Investing"
+        if "not related to customer financing" in l: return "Operating" if policies.get("fin_op") == "Yes" else "Financing"
     
-    name = row_name.lower()
-    if "cash" in name and "equivalents" in name:
-        return "Operating" if policies.get("cash_op") == "Yes" else "Investing"
-    if "loans/bonds not related" in name:
-        return "Operating" if policies.get("fin_op") == "Yes" else "Financing"
-    return "Operating"
+    # Universal
+    if "income tax" in l: return "Income Tax"
+    if "discontinued" in l: return "Discontinued Ops"
+    
+    # Simple Keyword Logic
+    if "interest expense" in l or "financing debt" in l or "lease liability" in l or "lease liabilities" in l: return "Financing"
+    if "investing" in l or "investment" in l or "dividends" in l or "equity method" in l: return "Investing"
+    
+    # Overrides based on Template Key
+    if key == "Investing Entity" and "investment" in l: return "Operating"
+    if key == "Financing Entity" and "customer" in l: return "Operating"
+    
+    return "Operating" # Default
 
-# --- 6. State Management ---
+# --- 6. State ---
 if "step" not in st.session_state: st.session_state.step = 1
 if "template_key" not in st.session_state: st.session_state.template_key = "Other main buisness activities"
 if "p_cash" not in st.session_state: st.session_state.p_cash = "No"
 if "p_fin" not in st.session_state: st.session_state.p_fin = "No"
 
-# --- 7. UI Components ---
+# --- 7. UI Steps ---
 
 def render_sidebar():
     with st.sidebar:
         st.markdown("### Process Status")
-        steps = ["Upload", "Model Selection", "Map Groups", "Breakdown", "Final Report"]
+        steps = ["Upload", "Model Selection", "Classify Groups", "Granular Breakdown", "Final Report"]
         for i, s in enumerate(steps, 1):
             cls = "step-active" if st.session_state.step == i else "step-inactive"
             st.markdown(f"<div class='{cls}'>{i}. {s}</div>", unsafe_allow_html=True)
         st.divider()
-        st.info("💡 **Selection Saved:** Data persists automatically.")
+        st.info("Selection state is persistent.")
 
 def step_1_upload():
     st.subheader("1. Upload Financial Data")
@@ -302,19 +304,16 @@ def step_1_upload():
         f = st.file_uploader("Upload Excel or CSV", type=['xlsx', 'csv'])
         if f:
             df = load_data_file(f)
-            if not df.empty and len(df.columns) > 1:
+            if not df.empty:
                 st.session_state.uploaded_df = df
                 st.toast("File Uploaded!", icon="✅")
     with c2:
         if "uploaded_df" in st.session_state:
             st.dataframe(st.session_state.uploaded_df.head(5), use_container_width=True, height=200)
-            if st.button("Next: Business Model →"):
-                st.session_state.step = 2
-                st.rerun()
+            if st.button("Next: Business Model →"): st.session_state.step = 2; st.rerun()
 
 def step_2_model():
     st.subheader("2. Business Model & Policies")
-    
     q1 = st.radio("Does the entity invest in financial assets as a main activity?", ["No", "Yes"], index=0, key="rad_q1")
     q2 = st.radio("Does the entity provide financing to customers as a main activity?", ["No", "Yes"], index=0, key="rad_q2")
     
@@ -325,7 +324,6 @@ def step_2_model():
     
     if temp == "Financing Entity":
         st.markdown("---")
-        st.markdown("##### Accounting Policy Choices")
         c1, c2 = st.columns(2)
         with c1:
             p1 = st.radio("Classify Cash & Equivalents as Operating?", ["Yes", "No"], key="rad_p1")
@@ -334,185 +332,190 @@ def step_2_model():
             p2 = st.radio("Classify Non-Customer Financing Interest as Operating?", ["Yes", "No"], index=1, key="rad_p2")
             st.session_state.p_fin = p2
     
-    st.info(f"Applying Template: **{temp}**")
-    
+    st.success(f"Template: **{temp}**")
     b1, b2 = st.columns([1, 5])
     if b1.button("← Back"): st.session_state.step = 1; st.rerun()
-    if b2.button("Confirm & Map Groups →"): st.session_state.step = 3; st.rerun()
+    if b2.button("Confirm & Continue →"): st.session_state.step = 3; st.rerun()
 
-def step_3_map():
-    st.subheader("3. Map Line Items to Groups")
-    st.write("Assign each uploaded line to an **IFRS 18 Group**.")
+def step_3_map_groups():
+    st.subheader("3. Classify to IFRS 18 Groups")
+    st.write("Map your source lines to the high-level **Group Buckets** first.")
     
     df = st.session_state.uploaded_df
-    ref_df = get_template_data(st.session_state.template_key)
+    # Get just the groups
+    groups, _ = get_template_structure(st.session_state.template_key)
     
-    # Filter for GROUPS only
-    group_options = sorted(ref_df[ref_df["Type"] == "Group"]["Line Item"].unique().tolist())
+    # Add a visual indicator
+    group_options = [f"[G] {g}" for g in groups]
     
-    # Initialize Mapping Table (No Fuzzy matching, purely manual selection)
-    if "mapping_df" not in st.session_state:
+    if "group_map_df" not in st.session_state:
         m = []
         for line in df["line item"]:
-            # Default to first group or empty
-            m.append({"uploaded_line": line, "IFRS 18 Group": group_options[0], "Breakdown?": "No"})
-        st.session_state.mapping_df = pd.DataFrame(m)
+            # Default mapping logic (dumb) or fuzzy
+            best, _, _ = process.extractOne(str(line), group_options, scorer=fuzz.token_sort_ratio)
+            m.append({"uploaded_line": line, "Mapped Group": best})
+        st.session_state.group_map_df = pd.DataFrame(m)
 
     edited = st.data_editor(
-        st.session_state.mapping_df,
+        st.session_state.group_map_df,
         column_config={
             "uploaded_line": st.column_config.TextColumn("Source Line", disabled=True),
-            "IFRS 18 Group": st.column_config.SelectboxColumn("Map to Group", options=group_options, width="large"),
-            "Breakdown?": st.column_config.SelectboxColumn("Breakdown Required?", options=["No", "Yes"], width="small", help="Select Yes if you need to allocate parts of this amount to specific Detailed lines.")
+            "Mapped Group": st.column_config.SelectboxColumn("Target Group Bucket", options=group_options, width="large")
         },
-        use_container_width=True, hide_index=True, height=500, key="editor_map"
+        use_container_width=True, hide_index=True, height=500, key="editor_step3"
     )
-    st.session_state.mapping_df = edited
+    st.session_state.group_map_df = edited
     
     b1, b2 = st.columns([1, 5])
     if b1.button("← Back"): st.session_state.step = 2; st.rerun()
-    
-    has_breakdown = any(edited["Breakdown?"] == "Yes")
-    lbl = "Proceed to Breakdown →" if has_breakdown else "Generate Report →"
-    if b2.button(lbl):
-        st.session_state.step = 4 if has_breakdown else 5
-        st.rerun()
+    if b2.button("Proceed to Breakdown →"): st.session_state.step = 4; st.rerun()
 
-def step_4_redistribute():
+def step_4_breakdown():
     st.subheader("4. Granular Breakdown")
-    st.info("Allocate amounts from the Groups into specific Detailed Line Items.")
+    st.info("Select detailed IFRS 18 lines and allocate amounts from your Groups.")
     
     df = st.session_state.uploaded_df
-    mapping = st.session_state.mapping_df
+    groups_list, details_list = get_template_structure(st.session_state.template_key)
     year_cols = [c for c in df.columns if c != "line item"]
     
-    # Get DETAILED lines for dropdowns
-    ref_df = get_template_data(st.session_state.template_key)
-    detail_options = sorted(ref_df[ref_df["Type"] == "Detail"]["Line Item"].unique().tolist())
+    # Groups available to pull from
+    avail_groups = [f"[G] {g}" for g in groups_list]
     
-    breakdown_rows = mapping[mapping["Breakdown?"] == "Yes"]
-    if breakdown_rows.empty: st.session_state.step = 5; st.rerun()
+    # We need a dynamic list of allocations.
+    # We will use a session state dataframe to hold the allocations the user creates.
+    if "allocations_table" not in st.session_state:
+        # Columns: Target Detail Line | Source Group | Amount Y1 | Amount Y2...
+        cols = ["Detailed IFRS Line", "Source Group"] + year_cols
+        st.session_state.allocations_table = pd.DataFrame(columns=cols)
+
+    # UI: Add new allocation
+    st.markdown("**Add Allocation Rule**")
     
-    alloc_list = []
-    tabs = st.tabs([f"📝 {r['uploaded_line']}" for _, r in breakdown_rows.iterrows()])
+    # Main Editor
+    edited_allocs = st.data_editor(
+        st.session_state.allocations_table,
+        column_config={
+            "Detailed IFRS Line": st.column_config.SelectboxColumn(options=details_list, required=True, width="medium"),
+            "Source Group": st.column_config.SelectboxColumn(options=avail_groups, required=True, width="medium"),
+            **{y: st.column_config.NumberColumn(format="%.0f") for y in year_cols}
+        },
+        num_rows="dynamic",
+        use_container_width=True,
+        key="alloc_editor_main"
+    )
+    st.session_state.allocations_table = edited_allocs
     
-    for i, tab in enumerate(tabs):
-        with tab:
-            row = breakdown_rows.iloc[i]
-            src = row['uploaded_line']
-            mapped_group = row['IFRS 18 Group']
-            orig_vals = df[df["line item"] == src].iloc[0][year_cols]
+    st.markdown("---")
+    
+    # Calculate Remainders in Groups
+    st.markdown("##### Group Balance Check")
+    
+    # 1. Sum up originals per mapped group
+    group_map = st.session_state.group_map_df
+    group_totals = {g: {y: 0.0 for y in year_cols} for g in avail_groups}
+    
+    for _, row in group_map.iterrows():
+        g = row["Mapped Group"]
+        src_line = row["uploaded_line"]
+        src_vals = df[df["line item"] == src_line].iloc[0][year_cols]
+        for y in year_cols:
+            group_totals[g][y] += src_vals[y]
             
-            c1, c2 = st.columns([1, 3])
-            c1.markdown(f"**Source:** `{src}`")
-            c1.markdown(f"**Mapped Group:** `{mapped_group}`")
-            c1.markdown("---")
-            for y in year_cols: c1.metric(y, f"{orig_vals[y]:,.0f}")
-            
-            key = f"alloc_{src}_{i}"
-            if key not in st.session_state:
-                # Default empty alloc
-                st.session_state[key] = pd.DataFrame([{"Detailed IFRS Line": detail_options[0], **{y: 0.0 for y in year_cols}}])
-            
-            with c2:
-                edited = st.data_editor(
-                    st.session_state[key],
-                    column_config={"Detailed IFRS Line": st.column_config.SelectboxColumn(options=detail_options, width="large")},
-                    num_rows="dynamic", use_container_width=True, key=f"wid_{key}"
-                )
-                st.session_state[key] = edited
-                
-                # Logic: Total Source - Allocated = Remaining in Group
-                allocated_sum = edited[year_cols].sum()
-                remaining_in_group = orig_vals - allocated_sum
-                
-                st.caption("Remaining amount stays in the mapped Group:")
-                cols = st.columns(len(year_cols))
-                for idx, y in enumerate(year_cols):
-                    cols[idx].metric(y, f"{remaining_in_group[y]:,.0f}")
-            
-            temp = edited.copy()
-            temp["_source"] = src
-            alloc_list.append(temp)
+    # 2. Subtract Allocations
+    for _, row in edited_allocs.iterrows():
+        g = row["Source Group"]
+        if g in group_totals:
+            for y in year_cols:
+                val = row[y] if pd.notnull(row[y]) else 0.0
+                group_totals[g][y] -= float(val)
+    
+    # Display Balances
+    balance_df = pd.DataFrame.from_dict(group_totals, orient='index').reset_index().rename(columns={"index": "Group"})
+    # Filter out empty groups for cleanliness
+    balance_df["Total"] = balance_df[year_cols].sum(axis=1)
+    balance_df = balance_df[balance_df["Total"].abs() > 0.1].drop(columns=["Total"])
+    
+    st.dataframe(balance_df.style.format({y: "{:,.0f}" for y in year_cols}), use_container_width=True)
 
     b1, b2 = st.columns([1, 5])
     if b1.button("← Back"): st.session_state.step = 3; st.rerun()
-    if b2.button("Generate Report →"):
-        st.session_state.final_alloc = pd.concat(alloc_list) if alloc_list else pd.DataFrame()
-        st.session_state.step = 5
-        st.rerun()
+    if b2.button("Generate Final Report →"): st.session_state.step = 5; st.rerun()
 
 def step_5_report():
-    st.subheader("5. Consolidated Statement of Profit or Loss")
+    st.subheader("5. IFRS 18 Consolidated Statement")
     
+    # Gather Inputs
     df = st.session_state.uploaded_df
-    mapping = st.session_state.mapping_df
-    allocs = st.session_state.get("final_alloc", pd.DataFrame())
+    group_map = st.session_state.group_map_df
+    allocs = st.session_state.allocations_table
     year_cols = [c for c in df.columns if c != "line item"]
     
     key = st.session_state.template_key
     policies = {"cash_op": st.session_state.p_cash, "fin_op": st.session_state.p_fin}
     
-    # 1. Prepare Structure
-    ref_df = get_template_data(key)
-    # Unique lines
-    final_lines = ref_df["Line Item"].unique()
-    final = pd.DataFrame(index=final_lines)
+    # Get Master List (Groups + Details)
+    g_list, d_list = get_template_structure(key)
     
-    # Resolve Categories
-    cat_map = {}
-    for _, r in ref_df.iterrows():
-        cat_map[r["Line Item"]] = resolve_policy_category(r["Category"], r["Line Item"], policies)
+    # Build Result DF
+    # We want Rows for Groups AND Rows for Details
+    # Groups usually aggregate what's left. Details aggregate what's allocated.
     
-    final["Category"] = final.index.map(cat_map)
-    for y in year_cols: final[y] = 0.0
+    final_data = {} # Key: Line Item Name, Value: Series of amounts
     
-    sankey_data = []
-
-    # 2. Calculation
-    # Iterate over original lines
-    for _, m in mapping.iterrows():
-        src = m["uploaded_line"]
-        group_target = m["IFRS 18 Group"]
+    # Initialize all potential lines
+    all_lines = [f"[G] {g}" for g in g_list] + d_list
+    for l in all_lines:
+        final_data[l] = pd.Series(0.0, index=year_cols)
         
-        # Get original values
-        orig_vals = df[df["line item"] == src].iloc[0][year_cols]
+    # 1. Pour Source Data into Groups
+    for _, row in group_map.iterrows():
+        target_g = row["Mapped Group"]
+        src_line = row["uploaded_line"]
+        vals = df[df["line item"] == src_line].iloc[0][year_cols]
         
-        # Check for allocations
-        allocated_amt = pd.Series(0.0, index=year_cols)
+        # Add to Group
+        if target_g in final_data:
+            for y in year_cols: final_data[target_g][y] += vals[y]
+            
+    # 2. Move Allocations (Subtract from Group, Add to Detail)
+    for _, row in allocs.iterrows():
+        src_g = row["Source Group"]
+        target_d = row["Detailed IFRS Line"]
         
-        if not allocs.empty:
-            # Filter allocs for this source line
-            src_allocs = allocs[allocs["_source"] == src]
-            for _, r in src_allocs.iterrows():
-                detail_target = r["Detailed IFRS Line"]
-                # Add to Detail Line
-                if detail_target in final.index:
-                    for y in year_cols: final.at[detail_target, y] += r[y]
-                    # Log flow
-                    if r[year_cols[0]] != 0:
-                        sankey_data.append({"Source": src, "Target": final.loc[detail_target, "Category"], "Value": abs(r[year_cols[0]])})
+        for y in year_cols:
+            val = float(row[y]) if pd.notnull(row[y]) else 0.0
+            
+            # Subtract from Group
+            if src_g in final_data:
+                final_data[src_g][y] -= val
                 
-                allocated_amt += r[year_cols]
-
-        # Remaining goes to Group
-        remaining = orig_vals - allocated_amt
-        if group_target in final.index:
-            for y in year_cols: final.at[group_target, y] += remaining[y]
-            if remaining[year_cols[0]] != 0:
-                sankey_data.append({"Source": src, "Target": final.loc[group_target, "Category"], "Value": abs(remaining[year_cols[0]])})
-
-    # 3. Format Output (Subtotals)
-    def get_tot(cat): return final[final["Category"] == cat][year_cols].sum()
+            # Add to Detail
+            if target_d in final_data:
+                final_data[target_d][y] += val
+                
+    # 3. Convert to DataFrame
+    final_df = pd.DataFrame.from_dict(final_data, orient='index')
+    final_df.index.name = "Line Item"
+    final_df = final_df.reset_index()
+    
+    # Clean names (remove [G]) for display? Maybe keep to distinguish.
+    # Classify Categories
+    final_df["Category"] = final_df["Line Item"].apply(lambda x: classify_category(x.replace("[G] ", ""), key, policies))
+    
+    # 4. Filter Zero Rows
+    final_df = final_df[final_df[year_cols].abs().sum(axis=1) > 0.1]
+    
+    # 5. Format Output (Subtotals)
     pl_rows = []
+    def get_tot(cat): return final_df[final_df["Category"] == cat][year_cols].sum()
     
     # Operating
     pl_rows.append({"Line Item": "<b>OPERATING CATEGORY</b>", "Header": True})
-    op_df = final[final["Category"] == "Operating"]
-    op_df = op_df[op_df[year_cols].abs().sum(axis=1) > 0.01]
-    for idx, r in op_df.iterrows():
-        d = {"Line Item": idx}; d.update(r[year_cols].to_dict())
+    op_subset = final_df[final_df["Category"] == "Operating"]
+    for idx, r in op_subset.iterrows():
+        d = {"Line Item": r["Line Item"].replace("[G] ", "")}; d.update(r[year_cols].to_dict())
         pl_rows.append(d)
+    
     op_tot = get_tot("Operating")
     d_op = {"Line Item": "<b>Operating Profit or Loss</b>", "Total": True}; d_op.update(op_tot.to_dict())
     pl_rows.append(d_op)
@@ -520,11 +523,11 @@ def step_5_report():
     # Investing
     pl_rows.append({"Line Item": " ", "Header": True})
     pl_rows.append({"Line Item": "<b>INVESTING CATEGORY</b>", "Header": True})
-    inv_df = final[final["Category"] == "Investing"]
-    inv_df = inv_df[inv_df[year_cols].abs().sum(axis=1) > 0.01]
-    for idx, r in inv_df.iterrows():
-        d = {"Line Item": idx}; d.update(r[year_cols].to_dict())
+    inv_subset = final_df[final_df["Category"] == "Investing"]
+    for idx, r in inv_subset.iterrows():
+        d = {"Line Item": r["Line Item"].replace("[G] ", "")}; d.update(r[year_cols].to_dict())
         pl_rows.append(d)
+        
     inv_tot = get_tot("Investing")
     ebit_tot = op_tot + inv_tot
     d_ebit = {"Line Item": "<b>Profit Before Financing & Tax</b>", "Total": True}; d_ebit.update(ebit_tot.to_dict())
@@ -533,26 +536,27 @@ def step_5_report():
     # Financing
     pl_rows.append({"Line Item": " ", "Header": True})
     pl_rows.append({"Line Item": "<b>FINANCING CATEGORY</b>", "Header": True})
-    fin_df = final[final["Category"] == "Financing"]
-    fin_df = fin_df[fin_df[year_cols].abs().sum(axis=1) > 0.01]
-    for idx, r in fin_df.iterrows():
-        d = {"Line Item": idx}; d.update(r[year_cols].to_dict())
+    fin_subset = final_df[final_df["Category"] == "Financing"]
+    for idx, r in fin_subset.iterrows():
+        d = {"Line Item": r["Line Item"].replace("[G] ", "")}; d.update(r[year_cols].to_dict())
         pl_rows.append(d)
+        
     fin_tot = get_tot("Financing")
     pbt_tot = ebit_tot + fin_tot
     d_pbt = {"Line Item": "<b>Profit Before Tax</b>", "Total": True}; d_pbt.update(pbt_tot.to_dict())
     pl_rows.append(d_pbt)
     
-    # Tax/Disc
+    # Others
     tax_tot = get_tot("Income Tax")
     if tax_tot.abs().sum() > 0:
         d = {"Line Item": "Income tax expense"}; d.update(tax_tot.to_dict())
         pl_rows.append(d)
+    
     disc_tot = get_tot("Discontinued Ops")
     if disc_tot.abs().sum() > 0:
         d = {"Line Item": "Discontinued operations"}; d.update(disc_tot.to_dict())
         pl_rows.append(d)
-    
+        
     net_tot = pbt_tot + tax_tot + disc_tot
     pl_rows.append({"Line Item": " "})
     d_net = {"Line Item": "<b>PROFIT OR LOSS</b>", "Total": True, "Grand": True}; d_net.update(net_tot.to_dict())
@@ -573,33 +577,37 @@ def step_5_report():
         if row.get("Total"): return ['font-weight: bold; border-top: 1px solid #333; background-color: white'] * len(row)
         return ['background-color: white'] * len(row)
 
-    t1, t2 = st.tabs(["📄 Financial Statement", "📊 Flow Analysis"])
-    with t1:
-        st.write(
-            display.style.apply(style_row, axis=1)
-            .format({y: fmt for y in year_cols})
-            .hide(axis="index").hide(subset=["Header", "Total", "Grand"], axis="columns").to_html(),
-            unsafe_allow_html=True
-        )
-        view = display.drop(columns=["Header", "Total", "Grand"], errors="ignore")
-        for y in year_cols: view[y] = view[y].apply(fmt)
-        st.download_button("📥 Download Report", view.to_csv(index=False).encode('utf-8'), "IFRS18.csv", "text/csv")
-
-    with t2:
-        if sankey_data:
-            sdf = pd.DataFrame(sankey_data).groupby(["Source", "Target"]).sum().reset_index()
-            lbls = list(pd.concat([sdf["Source"], sdf["Target"]]).unique())
-            imap = {l: i for i, l in enumerate(lbls)}
-            fig = go.Figure(data=[go.Sankey(
-                node=dict(pad=15, thickness=20, line=dict(color="black", width=0.5), label=lbls, color="#D04A02"),
-                link=dict(source=sdf["Source"].map(imap), target=sdf["Target"].map(imap), value=sdf["Value"])
-            )])
-            fig.update_layout(title="Data Classification Flow")
-            st.plotly_chart(fig, use_container_width=True)
-
+    st.write(
+        display.style.apply(style_row, axis=1)
+        .format({y: fmt for y in year_cols})
+        .hide(axis="index").hide(subset=["Header", "Total", "Grand"], axis="columns").to_html(),
+        unsafe_allow_html=True
+    )
+    
+    # CSV
+    view = display.drop(columns=["Header", "Total", "Grand"], errors="ignore")
+    st.download_button("📥 Download Report", view.to_csv(index=False).encode('utf-8'), "IFRS18.csv", "text/csv")
+    
     if st.button("Start New Project"):
         st.session_state.clear()
         st.rerun()
+
+# --- 8. Classification Logic (Categorization for Report) ---
+def classify_category(line, key, policies):
+    l = line.lower()
+    if "income tax" in l: return "Income Tax"
+    if "discontinued" in l: return "Discontinued Ops"
+    
+    # Policy Checks
+    if key == "Financing Entity":
+        if "cash" in l and "equivalents" in l: return "Operating" if policies.get("cash_op") == "Yes" else "Investing"
+        if "not related to customer financing" in l: return "Operating" if policies.get("fin_op") == "Yes" else "Financing"
+        if "customer" in l or "loans" in l: return "Operating" # Financing entity core biz
+    
+    if "interest expense" in l or "financing debt" in l: return "Financing"
+    if "invest" in l or "dividends" in l or "associates" in l: return "Investing"
+    
+    return "Operating"
 
 # --- Main ---
 def main():
@@ -607,8 +615,8 @@ def main():
     render_sidebar()
     if st.session_state.step == 1: step_1_upload()
     elif st.session_state.step == 2: step_2_model()
-    elif st.session_state.step == 3: step_3_map()
-    elif st.session_state.step == 4: step_4_redistribute()
+    elif st.session_state.step == 3: step_3_map_groups()
+    elif st.session_state.step == 4: step_4_breakdown()
     elif st.session_state.step == 5: step_5_report()
 
 if __name__ == "__main__":
