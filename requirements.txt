@@ -5,3 +5,5 @@ openpyxl
 rapidfuzz
 xlsxwriter
 plotly
+thefuzz
+python-levenshtein
