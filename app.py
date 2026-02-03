@@ -90,14 +90,15 @@ def generate_final_report_html(df, year_cols, category_order):
 
 @st.dialog("Confirm Change")
 def confirm_mapping_change(change_info):
-    """Shows a confirmation dialog for a mapping change."""
+    """Shows a confirmation dialog and updates confidence to 100% on confirmation."""
     st.write(f"Are you sure you want to change the classification from **'{change_info['old_val']}'** to **'{change_info['new_val']}'**?")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Yes, Confirm Change", type="primary", use_container_width=True):
             df = st.session_state.mapping_df
             df.loc[change_info['index'], 'Suggested IFRS 18 Match'] = change_info['new_val']
-            df.loc[change_info['index'], 'Confidence Score'] = 100
+            # Set security level to 100% upon manual change
+            df.loc[change_info['index'], 'Confidence Score'] = 100 
             st.session_state.mapping_df = df
             st.session_state.pending_mapping_change = None
             st.rerun()
@@ -235,14 +236,7 @@ if st.session_state.phase == "identify_ungroup":
 
 # --- Phase 5: Value Allocation ---
 if st.session_state.phase == "allocation":
-    # --- FIX: Removed semicolon and potential typo from this line ---
     st.header("Allocate Values")
-    
-    st.info("""
-    **Note on Pre-filled Allocations (for discussion with Maayan):**
-    The section below currently requires manual input. To automate this, the application would need to receive subsection mappings and values in advance.
-    The logic is now ready to accept this data: if `st.session_state.allocation_values` is pre-populated, the fields below will display those values instead of zeros.
-    """)
     st.write("Allocate values for the new line items. Any remaining amount will stay with the parent account.")
     
     items_to_allocate = {}
