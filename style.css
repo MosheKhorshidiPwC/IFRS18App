@@ -1,0 +1,122 @@
+/* General App Styling */
+body {
+    background-color: #f0f2f6;
+}
+
+/* Make containers look like cards */
+[data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+    border: 1px solid #e6e6e6;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.04);
+    background-color: white;
+}
+
+/* --- Card-Based Button/Radio Styling --- */
+.stButton>button {
+    width: 100%; /* Make button fill the column */
+    height: 120px;
+    padding: 20px 25px;
+    border: 2px solid #e6e6e6;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    background-color: #ffffff;
+    color: #31333f; /* Default text color */
+    font-weight: 600;
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.stButton>button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-color: #ff4b4b;
+    color: #ff4b4b;
+}
+
+/* --- Smaller, Horizontal Radio Buttons for Ungrouping Section --- */
+.ungroup-container [data-testid="stRadio"] label {
+    display: inline-block;
+    padding: 5px 15px; /* Smaller padding */
+    margin: 0px 5px; /* Less margin */
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.ungroup-container [data-testid="stRadio"] label:hover {
+    background-color: #e9ecef;
+}
+
+/* Hide the actual radio button inputs */
+[data-testid="stRadio"] input {
+    display: none;
+}
+
+/* --- Animation for Table Rows --- */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-row {
+    opacity: 0; /* Start hidden */
+    animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* =================================== */
+/* === Custom Table Styling for Report === */
+/* =================================== */
+.pwc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 16px; /* Bigger font */
+    font-family: 'Arial', sans-serif;
+    margin-bottom: 30px;
+    background-color: white; /* Ensure table has a white background */
+}
+.pwc-table th {
+    background-color: #f2f2f2;
+    color: #D04A02;
+    padding: 12px;
+    text-align: right;
+    border-bottom: 2px solid #2D2D2D;
+}
+.pwc-table th:first-child { text-align: left; }
+.pwc-table td {
+    padding: 10px 12px; /* Match padding with th */
+    border-bottom: 1px solid #e0e0e0;
+}
+/* Category Header Row Style */
+.pwc-header td {
+    background-color: #ffffff;
+    font-weight: bold;
+    color: #D04A02;
+    text-transform: uppercase;
+    border-bottom: 2px solid #D04A02;
+}
+/* Category Total Row Style */
+.pwc-total td {
+    font-weight: bold;
+    background-color: #fafafa;
+    border-top: 2px solid #2D2D2D;
+}
+/* Grand Total Row Style */
+.pwc-grand td {
+    font-weight: bold;
+    font-size: 18px;
+    background-color: #e8e8e8;
+    border-top: 2px solid #2D2D2D;
+    border-bottom: 4px double #2D2D2D;
+}
+.num-cell {
+    font-family: 'Courier New', monospace;
+    text-align: right;
+}
