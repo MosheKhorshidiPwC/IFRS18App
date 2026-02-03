@@ -30,6 +30,10 @@ def initialize_session_state():
     if 'mapping_df' not in st.session_state: st.session_state.mapping_df = None
     if 'ungroup_choices' not in st.session_state: st.session_state.ungroup_choices = {}
     if 'allocation_values' not in st.session_state: st.session_state.allocation_values = {}
+    # --- CHANGE START ---
+    # Add state for handling manual mapping change confirmation
+    if 'pending_mapping_change' not in st.session_state: st.session_state.pending_mapping_change = None
+    # --- CHANGE END ---
 
 def custom_scorer(s1, s2):
     """Custom fuzzy matching scorer to improve accuracy."""
@@ -105,6 +109,29 @@ def generate_final_report_html(df, year_cols, category_order):
     html += '</tbody></table>'
     return html
 
+# --- CHANGE START: Function for confirmation dialog ---
+@st.dialog("Confirm Change")
+def confirm_mapping_change(change_info):
+    """Shows a confirmation dialog for a mapping change."""
+    st.write(f"Are you sure you want to change the classification from **'{change_info['old_val']}'** to **'{change_info['new_val']}'**?")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Yes, Confirm Change", type="primary", use_container_width=True):
+            # Apply the change
+            df = st.session_state.mapping_df
+            df.loc[change_info['index'], 'Suggested IFRS 18 Match'] = change_info['new_val']
+            df.loc[change_info['index'], 'Confidence Score'] = 100
+            st.session_state.mapping_df = df
+            st.session_state.pending_mapping_change = None # Clear the pending change
+            st.rerun()
+    with col2:
+        if st.button("Cancel", use_container_width=True):
+            # Discard the change
+            st.session_state.pending_mapping_change = None # Clear the pending change
+            st.rerun()
+# --- CHANGE END ---
+
 
 # --- Main Application Logic ---
 initialize_session_state()
@@ -149,6 +176,12 @@ if st.session_state.phase == "upload":
 if st.session_state.phase == "mapping":
     st.header("Map Your Line Items to IFRS 18")
     st.write("Review our suggested matches and correct them as needed.")
+    
+    # --- CHANGE START: Logic to handle confirmation dialog ---
+    if st.session_state.pending_mapping_change:
+        confirm_mapping_change(st.session_state.pending_mapping_change)
+    # --- CHANGE END ---
+
     if 'mapping_df' not in st.session_state or st.session_state.mapping_df is None:
         mapping_data = []
         df = st.session_state.original_df
@@ -169,6 +202,10 @@ if st.session_state.phase == "mapping":
     mapping_options = [config.SUBTOTAL_MAPPING_VALUE] + sorted(config.IFRS_18_MASTER_LIST)
     line_item_col = st.session_state.original_df.columns[0]
     
+    # --- CHANGE START: Detect edits to trigger confirmation ---
+    # Store a copy of the dataframe before editing to detect changes
+    df_before_edit = st.session_state.mapping_df.copy()
+
     edited_df = st.data_editor(st.session_state.mapping_df, 
                                column_config={
                                    line_item_col: st.column_config.TextColumn("Original Line Item", disabled=True), 
@@ -176,10 +213,33 @@ if st.session_state.phase == "mapping":
                                    "Confidence Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%")
                                }, 
                                hide_index=True, 
-                               use_container_width=True)
-    
+                               use_container_width=True,
+                               key="mapping_editor")
+
+    # Compare the edited dataframe with the one from before the edit
+    if not edited_df.equals(df_before_edit):
+        # Find the exact change
+        changed_rows = (edited_df != df_before_edit).any(axis=1)
+        # Assuming only one change at a time from the UI
+        if changed_rows.sum() == 1:
+            changed_idx = changed_rows.idxmax()
+            
+            # Check if the change was in the 'Suggested IFRS 18 Match' column
+            old_val = df_before_edit.loc[changed_idx, 'Suggested IFRS 18 Match']
+            new_val = edited_df.loc[changed_idx, 'Suggested IFRS 18 Match']
+
+            if old_val != new_val:
+                st.session_state.pending_mapping_change = {
+                    'index': changed_idx,
+                    'old_val': old_val,
+                    'new_val': new_val
+                }
+                st.rerun() # Rerun to launch the dialog
+    # --- CHANGE END ---
+
     if st.button("Confirm Mapping", type="primary"):
-        st.session_state.mapping_df, st.session_state.phase = edited_df, "identify_ungroup"; st.rerun()
+        st.session_state.mapping_df = edited_df # Save the final state from the editor
+        st.session_state.phase = "identify_ungroup"; st.rerun()
 
 
 # --- Phase 4: Identify, Ungroup & Classify ---
@@ -203,134 +263,4 @@ if st.session_state.phase == "identify_ungroup":
     with st.container():
         st.markdown('<div class="ungroup-container">', unsafe_allow_html=True)
         for i, item in enumerate(applicable_missing_items):
-            st.markdown("---")
-            st.markdown(f'<div class="fade-in-row" style="animation-delay: {i*0.05}s;">', unsafe_allow_html=True)
-            cols = st.columns([2.5, 1, 2, 2])
-            with cols[0]: st.write(f"**{item}**")
-            with cols[1]: st.session_state.ungroup_choices[item]['is_grouped'] = st.radio(" ", ["No", "Yes"], key=f"grouped_{item}", horizontal=True, label_visibility="collapsed")
-            if st.session_state.ungroup_choices[item]['is_grouped'] == 'Yes':
-                with cols[2]: st.session_state.ungroup_choices[item]['parent'] = st.selectbox("Parent", valid_parent_options, key=f"parent_{item}", index=None, placeholder="Select...", label_visibility="collapsed")
-                if item in config.SPECIAL_POLICY_ITEMS and entity_type_key in config.SPECIAL_POLICY_ITEMS[item]:
-                    with cols[3]: st.session_state.ungroup_choices[item]['policy_choice'] = st.selectbox("Classify", config.SPECIAL_POLICY_ITEMS[item][entity_type_key], key=f"policy_{item}", label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with st.sidebar:
-        st.header("Actions")
-        st.write("When you are finished, proceed to the next step.")
-        if st.button("Proceed to Allocation", type="primary", use_container_width=True):
-            st.session_state.phase = "allocation"; st.rerun()
-
-
-# --- Phase 5: Value Allocation ---
-if st.session_state.phase == "allocation":
-    st.header("Allocate Values"); 
-    st.write("Allocate values for the new line items. Any remaining amount will stay with the parent account.")
-    items_to_allocate = {}
-    for item, choices in st.session_state.ungroup_choices.items():
-        if choices.get('is_grouped') == 'Yes' and choices.get('parent'):
-            parent = choices['parent']
-            if parent not in items_to_allocate: 
-                items_to_allocate[parent] = []
-            items_to_allocate[parent].append(item)
-            
-    if not items_to_allocate: 
-        st.info("No items selected for allocation. Proceed to generate the report.")
-    else:
-        original_df = st.session_state.original_df
-        line_item_col = original_df.columns[0]
-        year_cols = list(original_df.columns[1:])
-        
-        for parent_name, new_items in items_to_allocate.items():
-            with st.expander(f"Allocate from: **{parent_name}**", expanded=True):
-                parent_row = original_df[original_df[line_item_col] == parent_name].iloc[0]
-                if parent_name not in st.session_state.allocation_values: 
-                    st.session_state.allocation_values[parent_name] = {item: {y: 0.0 for y in year_cols} for item in new_items}
-                
-                cols = st.columns(len(year_cols))
-                
-                for i, year in enumerate(year_cols):
-                    with cols[i]:
-                        st.subheader(year)
-                        st.metric("Original Total", f"{parent_row[year]:,.2f}")
-                        total_allocated = 0
-                        for new_item in new_items:
-                            allocated_val = st.number_input(f"To: {new_item}", 
-                                                            key=f"alloc_{parent_name}_{new_item}_{year}", 
-                                                            value=st.session_state.allocation_values[parent_name][new_item].get(year, 0.0), 
-                                                            step=1000.0, format="%.2f")
-                            st.session_state.allocation_values[parent_name][new_item][year] = allocated_val
-                            total_allocated += allocated_val
-                        remaining = parent_row[year] - total_allocated
-                        st.metric("Amount Allocated", f"{total_allocated:,.2f}")
-                        st.metric("Remaining in Parent", f"{remaining:,.2f}", delta_color="off")
-                        
-    if st.button("Generate New P&L", type="primary"): 
-        st.session_state.phase = "final_report"; st.rerun()
-
-
-# --- Phase 6: Final Report (Using Custom HTML) ---
-if st.session_state.phase == "final_report":
-    st.header("IFRS 18 P&L Statement")
-    with st.spinner("Generating your new P&L statement..."):
-        # --- DATA PREPARATION ---
-        line_item_col = st.session_state.original_df.columns[0]
-        year_cols = list(st.session_state.original_df.columns[1:])
-
-        final_df = pd.merge(st.session_state.mapping_df, st.session_state.original_df, on=line_item_col)
-        final_df = final_df.rename(columns={'Suggested IFRS 18 Match': 'IFRS 18 Line Item', line_item_col: 'Original Line Item'})
-        new_rows = []
-        for parent_name, new_items_alloc in st.session_state.allocation_values.items():
-            parent_idx = final_df[final_df['Original Line Item'] == parent_name].index
-            for new_item_name, year_vals in new_items_alloc.items():
-                year_dict = {year: year_vals.get(year, 0.0) for year in year_cols}
-                for year, val in year_dict.items(): 
-                    final_df.loc[parent_idx, year] -= val
-                new_rows.append({'Original Line Item': f"{new_item_name} (Ungrouped)", 'IFRS 18 Line Item': new_item_name, **year_dict})
-        if new_rows: 
-            final_df = pd.concat([final_df, pd.DataFrame(new_rows)], ignore_index=True)
-        
-        final_df['Category'] = 'Unmapped / Subtotal'
-        mappable_rows = (final_df['IFRS 18 Line Item'].notna()) & (final_df['IFRS 18 Line Item'] != config.SUBTOTAL_MAPPING_VALUE)
-        
-        def get_classification(row):
-            item_name, entity_type = row['IFRS 18 Line Item'], st.session_state.entity_type
-            if item_name in st.session_state.ungroup_choices and 'policy_choice' in st.session_state.ungroup_choices[item_name]: 
-                return st.session_state.ungroup_choices[item_name]['policy_choice']
-            if item_name in config.FIXED_OPERATING_ITEMS: return "Operating Category"
-            if item_name in config.FIXED_FINANCING_ITEMS: return "Financing Category"
-            if item_name in config.FIXED_INVESTING_ITEMS: return "Investing Category"
-            if item_name in config.FIXED_TAX_ITEMS: return "Income Taxes Category"
-            if item_name in config.FIXED_DISCONTINUED_ITEMS: return "Discontinued Operations Category"
-            if item_name in config.ENTITY_DEPENDENT_ITEMS:
-                classification = config.ENTITY_DEPENDENT_ITEMS[item_name].get(entity_type)
-                if classification and classification not in ['N/A', 'Accounting Policy']: 
-                    return classification
-            return "Other/Unclassified"
-            
-        final_df.loc[mappable_rows, 'Category'] = final_df[mappable_rows].apply(get_classification, axis=1)
-        
-        category_order = ["Operating Category", "Investing Category", "Financing Category", "Income Taxes Category", "Discontinued Operations Category", "Other/Unclassified"]
-        final_df['Category'] = pd.Categorical(final_df['Category'], categories=category_order + ["Unmapped / Subtotal"], ordered=True)
-        final_df = final_df.sort_values('Category')
-        
-        display_df = final_df[(final_df['IFRS 18 Line Item'].notna()) & (final_df['IFRS 18 Line Item'] != config.SUBTOTAL_MAPPING_VALUE)].copy()
-
-        # --- HTML TABLE GENERATION AND DISPLAY ---
-        st.markdown("---")
-        
-        # Call the helper function to get the complete HTML string
-        report_html = generate_final_report_html(display_df, year_cols, category_order)
-        
-        # Render the HTML in the Streamlit app
-        st.markdown(report_html, unsafe_allow_html=True)
-        
-        st.write("") # Add some space before the download button
-
-        # --- DOWNLOAD BUTTON ---
-        @st.cache_data
-        def convert_df_to_csv(df):
-            return df.to_csv(index=False).encode('utf-8')
-            
-        csv = convert_df_to_csv(display_df)
-        st.download_button(label="Download P&L as CSV", data=csv, file_name="ifrs18_transformed_pnl.csv", mime="text/csv", key="final_report_download")
+            st
